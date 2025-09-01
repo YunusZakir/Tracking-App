@@ -1,0 +1,859 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Travel Tracker · Vanilla JS (OSRM)</title>
+  <style>
+    /* ---------- Base / Reset ---------- */
+    :root{
+      --bg:#0f1226;           /* deep indigo */
+      --panel:#15193a;        /* card/nav */
+      --muted:#8e95b2;        /* secondary text */
+      --text:#e8ebff;         /* primary text */
+      --accent:#7c7cff;       /* violet */
+      --accent-2:#00d2a8;     /* teal */
+      --danger:#ff6b6b;       /* coral */
+      --warn:#f5a524;         /* amber */
+      --ok:#2bd576;           /* green */
+      --shadow: 0 10px 30px rgba(0,0,0,.35), 0 2px 8px rgba(0,0,0,.25);
+      --radius: 16px;
+    }
+    *{box-sizing:border-box}
+    html,body{height:100%}
+    body{
+      margin:0; font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Helvetica, Arial, "Apple Color Emoji", "Segoe UI Emoji";
+      color:var(--text); background: radial-gradient(1200px 800px at 20% -10%, #20255a 0%, #0f1226 50%, #0b0e1f 100%);
+      overflow:hidden;
+    }
+
+    /* ---------- Layout ---------- */
+    .app{display:grid; grid-template-columns: 360px 1fr; gap:18px; height:100%; padding:18px}
+    .sidebar{
+      background:linear-gradient(160deg, rgba(21,25,58,.9), rgba(12,15,34,.9));
+      border:1px solid rgba(255,255,255,.06);
+      border-radius:var(--radius);
+      box-shadow:var(--shadow);
+      display:flex; flex-direction:column;
+      overflow:hidden;
+    }
+    .brand{display:flex; align-items:center; gap:12px; padding:16px 18px; border-bottom:1px solid rgba(255,255,255,.06)}
+    .logo{width:34px; height:34px; border-radius:10px; background:linear-gradient(135deg,var(--accent),#5de1e6); display:grid; place-items:center; font-weight:700; color:#0c0f22}
+    .brand h1{font-size:18px; margin:0}
+    .muted{color:var(--muted)}
+
+    .controls{padding:16px 18px; display:grid; gap:12px}
+    .row{display:grid; grid-template-columns: 1fr 1fr; gap:10px}
+    label{font-size:12px; color:var(--muted); margin-bottom:6px; display:block}
+    select, input[type="text"], .btn{
+      width:100%; border-radius:12px; border:1px solid rgba(255,255,255,.08);
+      background:#0e1230; color:var(--text); padding:10px 12px; font-size:14px;
+      outline:none; transition: transform .06s ease, border-color .2s ease, background .2s ease;
+    }
+    select:focus, input:focus{border-color:var(--accent)}
+    .btn{
+      background:linear-gradient(180deg, #1b2255, #12173b);
+      cursor:pointer; user-select:none; text-align:center; font-weight:600;
+    }
+    .btn:hover{transform: translateY(-1px)}
+    .btn:active{transform: translateY(0)}
+    .btn.primary{background: linear-gradient(180deg, #6b6bff, #4e4eff); color:#0b0f21}
+    .btn.good{background: linear-gradient(180deg, #29d67b, #18a85c); color:#03130b}
+    .btn.warn{background: linear-gradient(180deg, #ffc76e, #f4a61f); color:#2f1c00}
+    .btn.danger{background: linear-gradient(180deg, #ff7f8b, #f25959)}
+    .btn.ghost{background:#0f1435}
+
+    .stats{
+      padding:12px 18px 18px;
+      display:grid; gap:10px;
+    }
+    .summary-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  height: 100%;
+  width: 320px;
+  background: linear-gradient(180deg, #15193a, #0f1226);
+  border-right: 1px solid rgba(255,255,255,.08);
+  box-shadow: 6px 0 20px rgba(0,0,0,.5);
+  transform: translateX(-100%);
+  transition: transform 0.3s ease;
+  z-index: 30;
+  padding: 20px;
+  overflow-y: auto;
+}
+.summary-panel.visible { transform: translateX(0); }
+.summary-panel h2 { margin: 0 0 14px; font-size: 18px; }
+.daily-block {
+  margin-bottom: 14px;
+  padding: 12px;
+  background: rgba(255,255,255,.03);
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.08);
+}
+.daily-block h3 {
+  margin: 0 0 6px;
+  font-size: 15px;
+  color: var(--accent-2);
+}
+.daily-stats {
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--muted);
+}
+
+    .kpis{display:grid; grid-template-columns:1fr 1fr; gap:10px}
+    .card{background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.06); border-radius:14px; padding:12px; box-shadow: inset 0 1px 0 rgba(255,255,255,.06)}
+    .kpi .label{font-size:11px; color:var(--muted)}
+    .kpi .value{font-size:20px; font-weight:700; margin-top:4px}
+
+    .history{margin-top:auto; border-top:1px solid rgba(255,255,255,.06)}
+    .history h3{margin:10px 18px; font-size:13px; color:var(--muted); font-weight:600}
+    .list{padding:0 10px 10px 10px; max-height:28vh; overflow:auto}
+    .trip{display:grid; grid-template-columns: 1fr auto; gap:8px; align-items:center; padding:10px; margin:8px; border-radius:12px; background:linear-gradient(180deg, rgba(255,255,255,.04), rgba(255,255,255,.02)); border:1px solid rgba(255,255,255,.06); cursor:pointer}
+    .trip:hover{outline:2px solid rgba(124,124,255,.35)}
+    .pill{font-size:11px; padding:4px 8px; border-radius:999px; background:rgba(124,124,255,.18); border:1px solid rgba(124,124,255,.4)}
+
+    /* ---------- Map ---------- */
+    .map-wrap{position:relative; border-radius:var(--radius); overflow:hidden; box-shadow:var(--shadow); border:1px solid rgba(255,255,255,.06)}
+    canvas#map{position:absolute; inset:0; width:100%; height:100%; background:#0b0e1f}
+    canvas#overlay{position:absolute; inset:0; width:100%; height:100%; pointer-events:none}
+
+    .zoom-controls{position:absolute; right:14px; top:14px; display:grid; gap:8px; z-index:5}
+    .zoom-controls .btn{width:40px; height:40px; display:grid; place-items:center; border-radius:12px}
+
+    .legend{position:absolute; left:14px; bottom:14px; background:rgba(8,10,24,.7); border:1px solid rgba(255,255,255,.08); backdrop-filter: blur(6px); border-radius:12px; padding:8px 12px; font-size:12px}
+    .attr{position:absolute; right:14px; bottom:14px; font-size:11px; color:var(--muted); background:rgba(8,10,24,.6); padding:6px 10px; border-radius:12px; border:1px solid rgba(255,255,255,.06)}
+    .marker{position:absolute; width:14px; height:14px; background:var(--accent-2); border-radius:999px; border:2px solid #081018; transform:translate(-50%, -50%); pointer-events:none; box-shadow: 0 0 0 2px rgba(0,210,168,.25)}
+
+    .hint{font-size:12px; color:var(--muted); margin-top:-4px}
+    .footer-note{padding:10px 18px; border-top:1px solid rgba(255,255,255,.06); font-size:12px; color:var(--muted)}
+    .kbd{background:#0c1131; border:1px solid rgba(255,255,255,.12); padding:2px 6px; border-radius:6px}
+
+    /* Trip dashboard (on map) */
+    #trip-dashboard {
+      position:absolute;
+      right:18px;
+      top:18px;
+      background: linear-gradient(180deg, rgba(255,255,255,0.03), rgba(255,255,255,0.02));
+      color:var(--text);
+      padding:12px;
+      border-radius:10px;
+      min-width:220px;
+      border:1px solid rgba(255,255,255,.06);
+      box-shadow: 0 8px 30px rgba(0,0,0,.4);
+      z-index:10;
+      display:none;
+    }
+    #trip-dashboard h4{margin:0 0 8px 0; font-size:14px}
+    #trip-dashboard p{margin:4px 0; font-size:13px; color:var(--muted)}
+
+    @media (max-width: 980px){
+      .app{grid-template-columns:1fr; grid-auto-rows:auto 1fr}
+      .history .list{max-height:unset}
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Sidebar / Dashboard -->
+    <aside class="sidebar">
+      <div class="brand">
+        <div class="logo">TT</div>
+        <div>
+          <h1>Travel Tracker</h1>
+          <div class="muted">Plot your routes • See stats</div>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div>
+          <label for="mode">Mode of travel</label>
+          <select id="mode">
+            <option value="walking">🚶 Walking</option>
+            <option value="bicycle">🚲 Bicycle</option>
+            <option value="bike">🏍️ Bike</option>
+            <option value="car">🚗 Car</option>
+          </select>
+        </div>
+        <div class="row">
+          <button class="btn primary" id="startBtn">Start Journey</button>
+          <button class="btn ghost" id="undoBtn" title="Undo last point">Undo</button>
+        </div>
+        <div class="row">
+          <button class="btn good" id="saveBtn">Save Journey</button>
+          <button class="btn danger" id="clearBtn">Clear</button>
+        </div>
+        <div class="row">
+  <button class="btn" id="summaryBtn">📊 Daily Summary</button>
+  <button class="btn ghost" id="exportBtn" title="Export visible trip (GeoJSON)">Export</button>
+</div>
+
+        <div>
+          <label for="tripName">Trip name (optional)</label>
+          <input id="tripName" type="text" placeholder="e.g., Morning Ride" />
+          <div class="hint">Click on the map to add waypoints. Drag to pan, use mouse wheel to zoom.</div>
+        </div>
+      </div>
+
+      <div class="stats">
+        <div class="kpis">
+          <div class="card kpi">
+            <div class="label">Distance</div>
+            <div class="value" id="distVal">0.00 km</div>
+          </div>
+          <div class="card kpi">
+            <div class="label">Duration (est.)</div>
+            <div class="value" id="durVal">00:00</div>
+          </div>
+        </div>
+        <div class="kpis">
+          <div class="card kpi">
+            <div class="label">Mode</div>
+            <div class="value" id="modeVal">Walking</div>
+          </div>
+          <div class="card kpi">
+            <div class="label">Calories (est.)</div>
+            <div class="value" id="calVal">0 kcal</div>
+          </div>
+        </div>
+      </div>
+
+
+      <div class="footer-note">
+        <span class="muted">Tips:</span> <span class="kbd">Drag</span> to move • <span class="kbd">Wheel</span> to zoom • <span class="kbd">Click</span> to add points • <span class="kbd">S</span> save, <span class="kbd">Z</span> undo
+      </div>
+    </aside>
+    <div id="summary-panel" class="summary-panel">
+  <h2>📊 Daily Summary</h2>
+  <div id="daily-summary"></div>
+  <button id="close-summary" class="btn ghost" style="margin-top:12px;width:100%">Close</button>
+</div>
+
+    <!-- Map Area -->
+    <div class="map-wrap">
+      <canvas id="map"></canvas>
+      <canvas id="overlay"></canvas>
+
+      <div id="trip-dashboard"></div>
+
+      <div class="zoom-controls">
+        <button class="btn" id="zoomIn" title="Zoom in">＋</button>
+        <button class="btn" id="zoomOut" title="Zoom out">－</button>
+      </div>
+      <div class="legend">Adding points: <b id="status">Not started</b></div>
+      <div class="attr">© OpenStreetMap contributors</div>
+    </div>
+  </div>
+
+  <script>
+    // =============================
+    // Utility math for Web Mercator
+    // =============================
+    const TILE_SIZE = 256;
+    function lon2tile(lon, z){ return Math.floor((lon + 180) / 360 * (1 << z)); }
+    function lat2tile(lat, z){ return Math.floor((1 - Math.log(Math.tan(lat * Math.PI/180) + 1/Math.cos(lat * Math.PI/180)) / Math.PI) / 2 * (1 << z)); }
+    function tile2lon(x, z){ return x / (1 << z) * 360 - 180; }
+    function tile2lat(y, z){
+      const n = Math.PI - 2*Math.PI*y/(1<<z);
+      return (180/Math.PI) * Math.atan(0.5*(Math.exp(n)-Math.exp(-n)));
+    }
+
+    // Convert lat/lon <-> world pixel at zoom z
+    function project(lat, lon, z){
+      const sin = Math.sin(lat * Math.PI / 180);
+      const scale = TILE_SIZE * (1<<z);
+      const x = (lon + 180) / 360 * scale;
+      const y = (0.5 - Math.log((1+sin)/(1-sin)) / (4*Math.PI)) * scale;
+      return {x,y};
+    }
+    function unproject(x, y, z){
+      const scale = TILE_SIZE * (1<<z);
+      const lon = x/scale*360 - 180;
+      const n = Math.PI - 2*Math.PI*y/scale;
+      const lat = (180/Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+      return {lat, lon};
+    }
+
+    // Haversine distance in km between two {lat,lon}
+    function haversine(a,b){
+      const R = 6371;
+      const dLat = (b.lat - a.lat) * Math.PI/180;
+      const dLon = (b.lon - a.lon) * Math.PI/180;
+      const lat1 = a.lat * Math.PI/180, lat2 = b.lat * Math.PI/180;
+      const h = Math.sin(dLat/2)**2 + Math.cos(lat1)*Math.cos(lat2)*Math.sin(dLon/2)**2;
+      return 2*R*Math.asin(Math.sqrt(h));
+    }
+
+    // =============================
+    // Map state & tile cache
+    // =============================
+    const mapCanvas = document.getElementById('map');
+    const overlay = document.getElementById('overlay');
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const ctx = mapCanvas.getContext('2d');
+    const octx = overlay.getContext('2d');
+
+    const state = {
+      center: {lat: 20.5937, lon: 78.9629}, // India center
+      zoom: 5,
+      tiles: new Map(), // key `${z}/${x}/${y}` -> HTMLImageElement
+      isPanning: false,
+      panStart: null,
+      worldAtPanStart: null,
+      currentPath: [], // array of {lat,lon} - this will follow roads (OSRM)
+      journeys: [],    // saved trips: {id, name, mode, date, points: [{lat,lon}, ...], distanceKm, calories, color}
+      adding: false,
+      selectedId: null,
+      showAll: false
+    };
+
+    // Speeds (km/h) and METs for estimation
+    const SPEEDS = { walking: 5, bicycle: 15, bike: 40, car: 60 };
+    const METS =   { walking: 3.8, bicycle: 6.8, bike: 2.5, car: 1.5 };
+    const USER_WEIGHT_KG = 70; // assumption for calorie estimate
+
+    // UI refs
+    const modeSel = document.getElementById('mode');
+    const distVal = document.getElementById('distVal');
+    const durVal = document.getElementById('durVal');
+    const calVal = document.getElementById('calVal');
+    const modeVal = document.getElementById('modeVal');
+    const tripName = document.getElementById('tripName');
+    const statusEl = document.getElementById('status');
+    const tripDash = document.getElementById('trip-dashboard');
+    const showAllBtn = document.getElementById('showAllBtn');
+    const exportBtn = document.getElementById('exportBtn');
+    const summaryBtn = document.getElementById("summaryBtn");
+const summaryPanel = document.getElementById("summary-panel");
+const dailySummaryEl = document.getElementById("daily-summary");
+const closeSummary = document.getElementById("close-summary");
+
+    // =============================
+    // Resize handling
+    // =============================
+    function resize(){
+      const rect = mapCanvas.getBoundingClientRect();
+      mapCanvas.width = Math.round(rect.width * dpr);
+      mapCanvas.height = Math.round(rect.height * dpr);
+      overlay.width = mapCanvas.width;
+      overlay.height = mapCanvas.height;
+      draw();
+    }
+    window.addEventListener('resize', resize);
+
+    // =============================
+    // Tile fetching
+    // =============================
+    function getTile(z,x,y){
+      const key = `${z}/${x}/${y}`;
+      if(state.tiles.has(key)) return state.tiles.get(key);
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.decoding = 'sync';
+      img.src = `https://tile.openstreetmap.org/${z}/${x}/${y}.png`;
+      state.tiles.set(key, img);
+      return img;
+    }
+
+    // =============================
+    // Rendering
+    // =============================
+    function draw(){
+      const {width, height} = mapCanvas;
+      ctx.clearRect(0,0,width,height);
+
+      const centerWorld = project(state.center.lat, state.center.lon, state.zoom);
+      const px0 = centerWorld.x - width/2;
+      const py0 = centerWorld.y - height/2;
+
+      const xStart = Math.floor(px0 / TILE_SIZE);
+      const yStart = Math.floor(py0 / TILE_SIZE);
+      const xEnd = Math.floor((px0 + width) / TILE_SIZE);
+      const yEnd = Math.floor((py0 + height) / TILE_SIZE);
+
+      for(let ty=yStart; ty<=yEnd; ty++){
+        for(let tx=xStart; tx<=xEnd; tx++){
+          const img = getTile(state.zoom, tx, ty);
+          const dx = tx*TILE_SIZE - px0;
+          const dy = ty*TILE_SIZE - py0;
+          if(img.complete){
+            ctx.drawImage(img, Math.round(dx), Math.round(dy), TILE_SIZE, TILE_SIZE);
+          }else{
+            img.addEventListener('load', () => requestAnimationFrame(draw), {once:true});
+          }
+        }
+      }
+
+      // Draw saved journeys if showAll active OR draw highlighted one
+      octx.clearRect(0,0,width,height);
+      if(state.showAll){
+        state.journeys.forEach(j => drawPath(j.points, j.color || 'rgba(124,124,255,0.65)', 3, 0.9));
+      } else {
+        // draw all faint
+        state.journeys.forEach(j => drawPath(j.points, 'rgba(255,255,255,0.02)', 2, 1.0));
+        // draw selected journey with its color
+        if(state.selectedId){
+          const sel = state.journeys.find(x => x.id === state.selectedId);
+          if(sel) drawPath(sel.points, sel.color || 'rgba(124,124,255,0.95)', 4, 1.0);
+        } else {
+          // draw none prominently
+        }
+      }
+
+      // Draw current path (active building) prominently
+      if(state.currentPath.length>0){
+        drawPath(state.currentPath, 'rgba(0,210,168,1)', 4, 1.0, true);
+      }
+    }
+
+    function drawPath(points, strokeStyle, lineWidth=3, alpha=1.0, showMarkers=false){
+      if(!points || points.length<2) return;
+      const {width, height} = mapCanvas;
+      const centerWorld = project(state.center.lat, state.center.lon, state.zoom);
+      const px0 = centerWorld.x - width/2;
+      const py0 = centerWorld.y - height/2;
+
+      octx.save();
+      octx.globalAlpha = alpha;
+      octx.lineWidth = lineWidth;
+      octx.lineJoin = 'round';
+      octx.lineCap = 'round';
+      octx.strokeStyle = strokeStyle;
+      octx.beginPath();
+      points.forEach((p,i)=>{
+        const w = project(p.lat, p.lon, state.zoom);
+        const x = w.x - px0;
+        const y = w.y - py0;
+        if(i===0) octx.moveTo(x,y); else octx.lineTo(x,y);
+      });
+      octx.stroke();
+
+      if(showMarkers){
+        octx.fillStyle = 'rgba(0,210,168,1)';
+        points.forEach((p,i)=>{
+          const w = project(p.lat, p.lon, state.zoom);
+          const x = w.x - px0, y = w.y - py0;
+          octx.beginPath(); octx.arc(x,y, 4, 0, Math.PI*2); octx.fill();
+        });
+      }
+      octx.restore();
+    }
+
+    // =============================
+    // Interaction: pan & zoom
+    // =============================
+    mapCanvas.addEventListener('mousedown', (e)=>{
+      state.isPanning = true;
+      mapCanvas.style.cursor = 'grabbing';
+      const rect = mapCanvas.getBoundingClientRect();
+      state.panStart = {x: e.clientX - rect.left, y: e.clientY - rect.top};
+      state.worldAtPanStart = project(state.center.lat, state.center.lon, state.zoom);
+    });
+    window.addEventListener('mouseup', ()=>{ state.isPanning=false; mapCanvas.style.cursor='default'; });
+    window.addEventListener('mousemove', (e)=>{
+      if(!state.isPanning) return;
+      const rect = mapCanvas.getBoundingClientRect();
+      const dx = (e.clientX - rect.left) - state.panStart.x;
+      const dy = (e.clientY - rect.top) - state.panStart.y;
+      const world = { x: state.worldAtPanStart.x - dx*dpr, y: state.worldAtPanStart.y - dy*dpr };
+      const latlon = unproject(world.x, world.y, state.zoom);
+      state.center = latlon;
+      draw();
+    });
+
+    function zoom(delta, cx, cy){
+      const oldZ = state.zoom;
+      const newZ = Math.max(2, Math.min(18, oldZ + delta));
+      if(newZ === oldZ) return;
+
+      // Zoom around mouse position to feel natural
+      const rect = mapCanvas.getBoundingClientRect();
+      const mx = (cx ?? rect.width/2) * dpr;
+      const my = (cy ?? rect.height/2) * dpr;
+
+      const centerWorld = project(state.center.lat, state.center.lon, oldZ);
+      const before = {x: centerWorld.x + (mx - mapCanvas.width/2), y: centerWorld.y + (my - mapCanvas.height/2)};
+      const latlonBefore = unproject(before.x, before.y, oldZ);
+
+      state.zoom = newZ;
+
+      const afterWorld = project(latlonBefore.lat, latlonBefore.lon, newZ);
+      const centerNew = { x: afterWorld.x - (mx - mapCanvas.width/2), y: afterWorld.y - (my - mapCanvas.height/2)};
+      state.center = unproject(centerNew.x, centerNew.y, newZ);
+      draw();
+    }
+
+    mapCanvas.addEventListener('wheel', (e)=>{
+      e.preventDefault();
+      const delta = e.deltaY < 0 ? 1 : -1;
+      const rect = mapCanvas.getBoundingClientRect();
+      zoom(delta, e.clientX - rect.left, e.clientY - rect.top);
+    }, {passive:false});
+
+    document.getElementById('zoomIn').onclick = ()=> zoom(1);
+    document.getElementById('zoomOut').onclick = ()=> zoom(-1);
+
+    // =============================
+    // OSRM routing helper
+    // =============================
+    async function getOsrmRoute(from, to, profile){
+      // from/to are {lat, lon}
+      // map user mode to OSRM profile
+      const mapProfile = {
+        walking: 'walking',
+        bicycle: 'cycling',
+        bike: 'driving', // motorbike -> driving profile for vehicles
+        car: 'driving'
+      }[profile] || 'driving';
+
+      const url = `https://router.project-osrm.org/route/v1/${mapProfile}/${from.lon},${from.lat};${to.lon},${to.lat}?overview=full&geometries=geojson`;
+      try{
+        const res = await fetch(url);
+        if(!res.ok) throw new Error(`OSRM ${res.status}`);
+        const data = await res.json();
+        if(data.routes && data.routes.length>0) return data.routes[0];
+        return null;
+      }catch(err){
+        console.warn('OSRM error:', err);
+        return null;
+      }
+    }
+
+    // =============================
+    // Add points by clicking (when active) - uses OSRM to snap to roads
+    // =============================
+    mapCanvas.addEventListener('click', async (e)=>{
+      if(!state.adding) return;
+      const rect = mapCanvas.getBoundingClientRect();
+      const x = (e.clientX - rect.left) * dpr;
+      const y = (e.clientY - rect.top) * dpr;
+      const centerWorld = project(state.center.lat, state.center.lon, state.zoom);
+      const world = {x: centerWorld.x - mapCanvas.width/2 + x, y: centerWorld.y - mapCanvas.height/2 + y};
+      const latlon = unproject(world.x, world.y, state.zoom);
+      const clicked = { lat: latlon.lat, lon: latlon.lon };
+
+      // if first point, just push
+      if(state.currentPath.length === 0){
+        state.currentPath.push(clicked);
+        updateStats();
+        draw();
+        return;
+      }
+
+      // Otherwise query OSRM between last point and new clicked point
+      statusEl.textContent = 'Routing…';
+      const last = state.currentPath[state.currentPath.length - 1];
+      const route = await getOsrmRoute(last, clicked, modeSel.value);
+      if(route && route.geometry && route.geometry.coordinates && route.geometry.coordinates.length > 0){
+        // route.geometry.coordinates = [ [lon, lat], ... ]
+        // Convert to {lat, lon}, append to currentPath
+        const coords = route.geometry.coordinates.map(c => ({ lat: c[1], lon: c[0] }));
+        // Avoid duplicating the start point (first coordinate equals last)
+        if(coords.length > 0 && coords[0].lat === last.lat && coords[0].lon === last.lon){
+          coords.shift();
+        }
+        state.currentPath = state.currentPath.concat(coords);
+        // update stats using route.distance (meters)
+        // we don't sum haversine for road-accurate distance; instead use route.distance
+        // But updateStats uses currentPath (sumDistance) — that's OK; we'll also store distances in journey when saved
+        updateStats();
+        draw();
+      } else {
+        // fallback: push clicked point directly (straight line)
+        state.currentPath.push(clicked);
+        updateStats();
+        draw();
+      }
+      statusEl.textContent = 'Adding points…';
+    });
+
+    // =============================
+    // Stats calculation
+    // =============================
+    function sumDistance(points){
+      let total = 0; for(let i=1;i<points.length;i++){ total += haversine(points[i-1], points[i]); }
+      return total; // km
+    }
+    function estimateDurationHours(distanceKm, mode){
+      return distanceKm / (SPEEDS[mode] || 5);
+    }
+    function estimateCalories(distanceKm, mode){
+      // Use MET-based: kcal = MET * weight * hours
+      const hours = estimateDurationHours(distanceKm, mode);
+      return Math.round((METS[mode] || 3.5) * USER_WEIGHT_KG * hours);
+    }
+    function hhmmFromHours(h){
+      const totalMin = Math.round(h*60);
+      const mm = totalMin % 60; const hh = Math.floor(totalMin/60);
+      return `${String(hh).padStart(2,'0')}:${String(mm).padStart(2,'0')}`;
+    }
+
+    function updateStats(){
+      const mode = modeSel.value;
+      modeVal.textContent = mode.charAt(0).toUpperCase()+mode.slice(1);
+      const km = sumDistance(state.currentPath);
+      distVal.textContent = `${km.toFixed(2)} km`;
+      const hrs = estimateDurationHours(km, mode);
+      durVal.textContent = hhmmFromHours(hrs);
+      calVal.textContent = `${estimateCalories(km, mode).toLocaleString()} kcal`;
+    }
+
+    modeSel.addEventListener('change', ()=> {
+      updateStats();
+      // also update mode display
+      modeVal.textContent = modeSel.value.charAt(0).toUpperCase()+modeSel.value.slice(1);
+    });
+
+    // =============================
+    // Journey lifecycle
+    // =============================
+    function setAdding(on){
+      state.adding = on;
+      statusEl.textContent = on? 'Adding points…' : 'Not started';
+      document.getElementById('startBtn').textContent = on? 'Stop Adding' : 'Start Journey';
+      document.getElementById('startBtn').classList.toggle('warn', on);
+    }
+
+    document.getElementById('startBtn').addEventListener('click', ()=>{ setAdding(!state.adding); });
+
+    document.getElementById('undoBtn').addEventListener('click', ()=>{ 
+      // remove last segment: we can't determine original OSRM segment boundaries easily,
+      // so just pop last coordinate (safe fallback)
+      state.currentPath.pop(); updateStats(); draw();
+    });
+
+    document.getElementById('clearBtn').addEventListener('click', ()=>{ state.currentPath = []; updateStats(); draw(); });
+
+    // Save journey: save the OSRM-following points (state.currentPath) into journeys and persist
+    document.getElementById('saveBtn').addEventListener('click', ()=> {
+      if(state.currentPath.length < 2){
+        alert('Add at least two points to save a journey.'); return;
+      }
+      const mode = modeSel.value;
+      const km = sumDistance(state.currentPath);
+      const hrs = estimateDurationHours(km, mode);
+      const kcal = estimateCalories(km, mode);
+      const id = Date.now().toString(36);
+      const color = pickColor();
+      const j = {
+        id,
+        name: (tripName.value || `${mode} trip`).trim(),
+        mode, date: new Date().toISOString(),
+        points: state.currentPath.slice(), // store full OSRM snapped polyline as array of {lat,lon}
+        distanceKm: km, durationHrs: hrs, calories: kcal,
+        color
+      };
+      state.journeys.push(j);
+      persist();
+      state.currentPath = []; updateStats(); draw();
+      setAdding(false);
+      tripName.value = '';
+    });
+
+    // Keyboard shortcuts
+    window.addEventListener('keydown', (e)=>{
+      if(e.key.toLowerCase()==='s'){ document.getElementById('saveBtn').click(); }
+      if(e.key.toLowerCase()==='z'){ document.getElementById('undoBtn').click(); }
+    });
+
+    // =============================
+    // History UI + dashboard + show all
+    // =============================
+    function addTripToHistory(j){
+      const el = document.createElement('div');
+      el.className = 'trip'; el.dataset.id = j.id;
+      el.innerHTML = `
+        <div>
+          <div style="font-weight:700">${escapeHtml(j.name)}</div>
+          <div class="muted" style="font-size:12px">${new Date(j.date).toLocaleString()} • ${(j.distanceKm).toFixed(2)} km • ${j.mode}</div>
+        </div>
+        <div class="pill">${Math.round(j.calories)} kcal</div>
+      `;
+      el.addEventListener('click', ()=>{ focusJourney(j.id); });
+      historyEl.prepend(el);
+    }
+    function buildHistory(){
+      historyEl.innerHTML = '';
+      state.journeys.slice().reverse().forEach(addTripToHistory);
+    }
+    function focusJourney(id){
+      state.selectedId = id;
+      // Center map around the journey bbox
+      const j = state.journeys.find(t=>t.id===id); if(!j) return;
+      const lats = j.points.map(p=>p.lat); const lons = j.points.map(p=>p.lon);
+      const minLat = Math.min(...lats), maxLat = Math.max(...lats);
+      const minLon = Math.min(...lons), maxLon = Math.max(...lons);
+      // Fit bounds naive: binary search zoom
+      let z = 18;
+      const rect = {w: mapCanvas.width, h: mapCanvas.height};
+      while(z>2){
+        const nw = project(maxLat, minLon, z);
+        const se = project(minLat, maxLon, z);
+        const fits = (se.x - nw.x <= rect.w*0.85) && (se.y - nw.y <= rect.h*0.85);
+        if(fits) break; z--;
+      }
+      state.zoom = z;
+      state.center = { lat: (minLat+maxLat)/2, lon: (minLon+maxLon)/2 };
+      draw();
+      // show dashboard
+      showTripDashboard(j);
+      // brief highlight
+      flashPath(j.points);
+    }
+
+    function flashPath(points){
+      let t=0;
+      const timer = setInterval(()=>{
+        t++;
+        draw(); // redraw all
+        drawPath(points, 'rgba(255,255,255,0.95)', 6, 0.9);
+        if(t>10){ clearInterval(timer); draw(); }
+      }, 60);
+    }
+
+    function showTripDashboard(trip){
+      tripDash.innerHTML = `
+        <h4>${escapeHtml(trip.name || 'Trip')}</h4>
+        <p><strong>Date:</strong> ${new Date(trip.date).toLocaleString()}</p>
+        <p><strong>Mode:</strong> ${trip.mode}</p>
+        <p><strong>Distance:</strong> ${trip.distanceKm.toFixed(2)} km</p>
+        <p><strong>Calories:</strong> ${Math.round(trip.calories)} kcal</p>
+        <p style="margin-top:8px"><button id="closeDash" class="btn ghost">Close</button> <button id="replayDash" class="btn primary">Replay</button></p>
+      `;
+      tripDash.style.display = 'block';
+      document.getElementById('closeDash').onclick = ()=> { tripDash.style.display='none'; };
+      document.getElementById('replayDash').onclick = ()=> { animateReplay(trip.points); };
+    }
+
+    // Replay path (animate drawing)
+    function animateReplay(points){
+      if(!points || points.length < 2) return;
+      state.currentPath = []; // temporarily
+      let i = 0;
+      const timer = setInterval(()=>{
+        i++;
+        if(i >= points.length){ clearInterval(timer); state.currentPath = []; draw(); return; }
+        state.currentPath.push(points[i]);
+        draw();
+      }, 30);
+    }
+
+    // Show all trips toggle
+    showAllBtn.addEventListener('click', ()=>{
+      state.showAll = !state.showAll;
+      showAllBtn.textContent = state.showAll ? 'Hide All Trips' : 'Show All Trips';
+      // hide dashboard & selection when showing all
+      if(state.showAll){ state.selectedId = null; tripDash.style.display='none'; }
+      draw();
+    });
+
+    // Export visible trip (if selected)
+    exportBtn.addEventListener('click', ()=>{
+      let trip = null;
+      if(state.selectedId) trip = state.journeys.find(t => t.id === state.selectedId);
+      if(!trip){
+        alert('Select a trip from history to export.');
+        return;
+      }
+      const geojson = {
+        type: "Feature",
+        properties: { name: trip.name, mode: trip.mode, distanceKm: trip.distanceKm, calories: trip.calories, date: trip.date },
+        geometry: {
+          type: "LineString",
+          coordinates: trip.points.map(p => [p.lon, p.lat])
+        }
+      };
+      const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${(trip.name||'trip').replace(/\s+/g,'_')}.geojson`; document.body.appendChild(a); a.click();
+      a.remove(); URL.revokeObjectURL(url);
+    });
+
+    // =============================
+    // Persistence (session only)
+    // =============================
+    function persist(){ sessionStorage.setItem('tt.journeys', JSON.stringify(state.journeys)); }
+    function load(){
+      try{
+        const raw = sessionStorage.getItem('tt.journeys');
+        if(raw){ state.journeys = JSON.parse(raw) || []; }
+      }catch(e){ console.warn('Could not parse saved journeys', e) }
+    }
+
+    // =============================
+    // Helpers
+    // =============================
+    function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c=>({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#039;"}[c])); }
+    function pickColor(){
+      const palette = [
+        'rgba(124,124,255,0.95)', 'rgba(0,210,168,0.95)', 'rgba(255,179,71,0.95)',
+        'rgba(255,107,129,0.95)', 'rgba(59,130,246,0.95)', 'rgba(16,185,129,0.95)'
+      ];
+      return palette[state.journeys.length % palette.length];
+    }
+  
+    // =============================
+    // Init
+    // =============================
+    function init(){
+      // Try geolocation to set center
+      if(navigator.geolocation){
+        navigator.geolocation.getCurrentPosition(pos=>{
+          state.center = {lat: pos.coords.latitude, lon: pos.coords.longitude};
+          state.zoom = 12; draw();
+        }, ()=>{ /* ignore */ });
+      }
+      load();
+      resize();
+      buildHistory();
+      updateStats();
+    }
+    init();
+    function getDailySummary() {
+  const grouped = {};
+  state.journeys.forEach(trip => {
+    const day = new Date(trip.date).toLocaleDateString();
+    if (!grouped[day]) {
+      grouped[day] = { distance: 0, calories: 0, duration: 0, modes: new Set() };
+    }
+    grouped[day].distance += trip.distanceKm;
+    grouped[day].calories += trip.calories;
+    grouped[day].duration += trip.durationHrs;
+    grouped[day].modes.add(trip.mode);
+  });
+  return grouped;
+}
+
+function renderDailySummary() {
+  const grouped = getDailySummary();
+  dailySummaryEl.innerHTML = "";
+  Object.keys(grouped).sort((a, b) => new Date(b) - new Date(a)).forEach(day => {
+    const d = grouped[day];
+    const block = document.createElement("div");
+    block.className = "daily-block";
+    block.innerHTML = `
+      <h3>${day}</h3>
+      <div class="daily-stats">
+        <div>🛣 Distance: ${d.distance.toFixed(2)} km</div>
+        <div>🔥 Calories: ${Math.round(d.calories)} kcal</div>
+        <div>⏱ Time: ${hhmmFromHours(d.duration)}</div>
+        <div>🚗 Modes: ${Array.from(d.modes).join(", ")}</div>
+      </div>
+    `;
+    dailySummaryEl.appendChild(block);
+  });
+}
+
+summaryBtn.addEventListener("click", () => {
+  renderDailySummary();
+  summaryPanel.classList.add("visible");
+});
+closeSummary.addEventListener("click", () => {
+  summaryPanel.classList.remove("visible");
+});
+
+  </script>
+</body>
+</html>
