@@ -177,6 +177,30 @@
       gap: 10px;
     }
 
+    .summary-panel {
+      position: absolute;
+      top: 0;
+      left: 0;
+      height: 100%;
+      width: 320px;
+      background: linear-gradient(180deg, #15193a, #0f1226);
+      border-right: 1px solid rgba(255, 255, 255, .08);
+      box-shadow: 6px 0 20px rgba(0, 0, 0, .5);
+      transform: translateX(-100%);
+      transition: transform 0.3s ease;
+      z-index: 30;
+      padding: 20px;
+      overflow-y: auto;
+    }
+
+    .summary-panel.visible {
+      transform: translateX(0);
+    }
+
+    .summary-panel h2 {
+      margin: 0 0 14px;
+      font-size: 18px;
+    }
 
     .daily-block {
       margin-bottom: 14px;
@@ -434,6 +458,10 @@
           <button class="btn good" id="saveBtn">Save Journey</button>
           <button class="btn danger" id="clearBtn">Clear</button>
         </div>
+        <div class="row">
+          <button class="btn" id="summaryBtn">📊 Daily Summary</button>
+          <button class="btn ghost" id="exportBtn" title="Export visible trip (GeoJSON)">Export</button>
+        </div>
 
         <div>
           <label for="tripName">Trip name (optional)</label>
@@ -472,7 +500,11 @@
         undo
       </div>
     </aside>
-    
+    <div id="summary-panel" class="summary-panel">
+      <h2>📊 Daily Summary</h2>
+      <div id="daily-summary"></div>
+      <button id="close-summary" class="btn ghost" style="margin-top:12px;width:100%">Close</button>
+    </div>
 
     <!-- Map Area -->
     <div class="map-wrap">
@@ -982,6 +1014,62 @@
         draw();
       }, 30);
     }
+
+    // Show all trips toggle
+    showAllBtn.addEventListener('click', () => {
+      state.showAll = !state.showAll;
+      showAllBtn.textContent = state.showAll ? 'Hide All Trips' : 'Show All Trips';
+      // hide dashboard & selection when showing all
+      if (state.showAll) { state.selectedId = null; tripDash.style.display = 'none'; }
+      draw();
+    });
+
+    // Export visible trip (if selected)
+    exportBtn.addEventListener('click', () => {
+      let trip = null;
+      if (state.selectedId) trip = state.journeys.find(t => t.id === state.selectedId);
+      if (!trip) {
+        alert('Select a trip from history to export.');
+        return;
+      }
+      const geojson = {
+        type: "Feature",
+        properties: { name: trip.name, mode: trip.mode, distanceKm: trip.distanceKm, calories: trip.calories, date: trip.date },
+        geometry: {
+          type: "LineString",
+          coordinates: trip.points.map(p => [p.lon, p.lat])
+        }
+      };
+      const blob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url; a.download = `${(trip.name || 'trip').replace(/\s+/g, '_')}.geojson`; document.body.appendChild(a); a.click();
+      a.remove(); URL.revokeObjectURL(url);
+    });
+
+    // =============================
+    // Persistence (session only)
+    // =============================
+    function persist() { sessionStorage.setItem('tt.journeys', JSON.stringify(state.journeys)); }
+    function load() {
+      try {
+        const raw = sessionStorage.getItem('tt.journeys');
+        if (raw) { state.journeys = JSON.parse(raw) || []; }
+      } catch (e) { console.warn('Could not parse saved journeys', e) }
+    }
+
+    // =============================
+    // Helpers
+    // =============================
+    function escapeHtml(s) { return String(s).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#039;" }[c])); }
+    function pickColor() {
+      const palette = [
+        'rgba(124,124,255,0.95)', 'rgba(0,210,168,0.95)', 'rgba(255,179,71,0.95)',
+        'rgba(255,107,129,0.95)', 'rgba(59,130,246,0.95)', 'rgba(16,185,129,0.95)'
+      ];
+      return palette[state.journeys.length % palette.length];
+    }
+
     // =============================
     // Init
     // =============================
@@ -1005,7 +1093,120 @@
       }
     }
     init();
-   
+    document.getElementById('saveBtn').addEventListener('click', () => {
+      if (state.currentPath.length < 2) {
+        alert("Add at least 2 points before saving a journey.");
+        return;
+      }
+
+      const name = tripName.value.trim() || `Trip ${state.journeys.length + 1}`;
+      const mode = modeSel.value;
+      const distanceKm = sumDistance(state.currentPath);
+      const calories = estimateCalories(distanceKm, mode);
+      const date = new Date().toISOString().split("T")[0];
+
+      const journey = {
+        id: Date.now(),
+        name,
+        mode,
+        date,
+        points: [...state.currentPath],
+        distanceKm,
+        calories,
+        color: `hsl(${Math.floor(Math.random() * 360)},70%,60%)`
+      };
+
+      state.journeys.push(journey);
+      state.currentPath = []; // reset after saving
+      updateStats();
+      draw();
+      alert(`Saved journey "${name}" (${distanceKm.toFixed(2)} km)`);
+    });
+
+    // =============================
+    // Export Journey (GeoJSON)
+    // =============================
+    exportBtn.addEventListener("click", () => {
+      let journey;
+      if (state.currentPath.length > 1) {
+        journey = {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: state.currentPath.map(p => [p.lon, p.lat])
+          },
+          properties: {
+            name: tripName.value.trim() || "Unfinished Trip",
+            mode: modeSel.value
+          }
+        };
+      } else if (state.selectedId) {
+        const sel = state.journeys.find(j => j.id === state.selectedId);
+        if (!sel) return;
+        journey = {
+          type: "Feature",
+          geometry: {
+            type: "LineString",
+            coordinates: sel.points.map(p => [p.lon, p.lat])
+          },
+          properties: {
+            name: sel.name,
+            mode: sel.mode
+          }
+        };
+      } else {
+        alert("No active or selected trip to export.");
+        return;
+      }
+
+      const blob = new Blob([JSON.stringify(journey, null, 2)], { type: "application/geo+json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = (journey.properties.name || "trip") + ".geojson";
+      a.click();
+      URL.revokeObjectURL(url);
+    });
+
+    // =============================
+    // Daily Summary
+    // =============================
+    summaryBtn.addEventListener("click", () => {
+      dailySummaryEl.innerHTML = "";
+
+      // group by date
+      const grouped = {};
+      state.journeys.forEach(j => {
+        if (!grouped[j.date]) grouped[j.date] = [];
+        grouped[j.date].push(j);
+      });
+
+      for (const [date, trips] of Object.entries(grouped)) {
+        const block = document.createElement("div");
+        block.className = "daily-block";
+        block.innerHTML = `<h3>${date}</h3>`;
+        let totalDist = 0, totalCal = 0;
+        trips.forEach(t => {
+          totalDist += t.distanceKm;
+          totalCal += t.calories;
+        });
+        block.innerHTML += `
+          <div class="daily-stats">
+            Trips: ${trips.length}<br/>
+            Distance: ${totalDist.toFixed(2)} km<br/>
+            Calories: ${totalCal} kcal
+          </div>
+        `;
+        dailySummaryEl.appendChild(block);
+      }
+
+      summaryPanel.classList.add("visible");
+    });
+
+    closeSummary.addEventListener("click", () => {
+      summaryPanel.classList.remove("visible");
+    });
+
     // =============================
     // Init
     // =============================
